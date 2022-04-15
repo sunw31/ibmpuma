@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
   repository_dispatch:
   schedule:
-    - cron: 0 21 * * 5
+  - cron: 0 21 * * 5
 
 jobs:
   deploy:
@@ -30,15 +30,17 @@ jobs:
       IBM_CF_SPACE_NAME: ${{ secrets.IBM_CF_SPACE_NAME }}
       IBM_CF_APP_NAME: ${{ secrets.IBM_CF_APP_NAME }}
       V2_UUID: ${{ secrets.V2_UUID }}
-      V2_WS_PATH: ${{ secrets.V2_WS_PATH }}
+      V2_WS_PATH_VMESS: ${{ secrets.V2_WS_PATH_VMESS }}
+      V2_WS_PATH_VLESS: ${{ secrets.V2_WS_PATH_VLESS }}
 
     steps:
 
     - name: Install Cloud Foundry CLI
       run: |
-        curl -fsSL "https://packages.cloudfoundry.org/stable?release=linux64-binary&source=github&version=v6" | tar -zxC /tmp
-        sudo mv /tmp/cf /usr/local/bin
+        curl -fsSL "https://packages.cloudfoundry.org/stable?release=linux64-binary&version=v7&source=github" | tar -zxC /tmp
+        sudo install -m 755 /tmp/cf7 /usr/local/bin/cf
         cf version
+
     - name: Login to IBM Cloud Foundry
       run: |
         cf login \
@@ -47,6 +49,7 @@ jobs:
           -p "${IBM_CF_PASSWORD}" \
           -o "${IBM_CF_ORG_NAME:-$IBM_CF_USERNAME}" \
           -s "${IBM_CF_SPACE_NAME:-dev}"
+
     - name: Download Latest V2Ray
       run: |
         DOWNLOAD_URL="https://github.com/v2fly/v2ray-core/releases/latest/download/v2ray-linux-64.zip"
@@ -55,12 +58,53 @@ jobs:
         rm latest-v2ray.zip
         chmod -v 755 v2*
         ./v2ray -version
-    - name: Generate V2Ray Config File
+        mv v2ray ${IBM_CF_APP_NAME}
+
+    - name: Generate V2Ray Config File (VMess)
+      if: ${{ env.V2_WS_PATH_VMESS }}
       run: |
-        cat > config.json << EOF
+        base64 << EOF > config
         {
           "log": {
-            "access": "none"
+            "access": "none",
+            "loglevel": "error"
+          },
+          "inbounds": [
+            {
+              "port": 8080,
+              "protocol": "vmess",
+              "settings": {
+                "clients": [
+                  {
+                    "id": "${V2_UUID}",
+                    "alterId": 64
+                  }
+                ]
+              },
+              "streamSettings": {
+                "network":"ws",
+                "wsSettings": {
+                  "path": "${V2_WS_PATH_VMESS}"
+                }
+              }
+            }
+          ],
+          "outbounds": [
+            {
+              "protocol": "freedom"
+            }
+          ]
+        }
+        EOF
+
+    - name: Generate V2Ray Config File (VLESS)
+      if: ${{ env.V2_WS_PATH_VLESS }}
+      run: |
+        base64 << EOF > config
+        {
+          "log": {
+            "access": "none",
+            "loglevel": "error"
           },
           "inbounds": [
             {
@@ -77,31 +121,30 @@ jobs:
               "streamSettings": {
                 "network":"ws",
                 "wsSettings": {
-                  "path": "${V2_WS_PATH}"
+                  "path": "${V2_WS_PATH_VLESS}"
                 }
               }
             }
           ],
           "outbounds": [
             {
-              "protocol": "freedom",
-              "settings": {}
+              "protocol": "freedom"
             }
           ]
         }
         EOF
+
     - name: Generate Manifest File
       run: |
-        cat > manifest.yml << EOF
+        cat << EOF > manifest.yml
         applications:
         - name: ${IBM_CF_APP_NAME}
           memory: ${IBM_CF_APP_MEM}
-          disk_quota: 128M
-          instances: 1
           random-route: true
-          command: ./v2ray -config=config.json
+          command: base64 -d config > config.json; ./${IBM_CF_APP_NAME} -config=config.json
           buildpacks:
           - binary_buildpack
         EOF
+
     - name: Deploy Cloud Foundry App
       run: cf push
