@@ -147,4 +147,4 @@ jobs:
         EOF
 
     - name: Deploy Cloud Foundry App
-      run: cf push -h
+      run: cf push
