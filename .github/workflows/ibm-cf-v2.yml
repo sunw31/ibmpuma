@@ -1,3 +1,5 @@
+name: IBM Cloud Foundry - V2Ray
+
 env:
   IBM_CF_REGOIN:  ${{ secrets.IBM_CF_REGOIN }}
   IBM_CF_APP_MEM: ${{ secrets.IBM_CF_APP_MEM }}
@@ -31,7 +33,7 @@ jobs:
     - name: Login to IBM Cloud Foundry
       run: |
         cf login \
-          -a "https://api.eu-gb.cf.cloud.ibm.com" \
+          -a "https://api.${IBM_CF_REGOIN:-us-south}.cf.cloud.ibm.com" \
           -u "${IBM_CF_USERNAME}" \
           -p "${IBM_CF_PASSWORD}" \
           -o "${IBM_CF_USERNAME}" \
